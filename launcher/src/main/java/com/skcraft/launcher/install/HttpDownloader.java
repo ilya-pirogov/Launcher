@@ -122,7 +122,7 @@ public class HttpDownloader implements Downloader {
     public File download(URL url, String key, long size, String name, String hash) {
         List<URL> urls = new ArrayList<URL>();
         urls.add(url);
-        return download(urls, key, size, name);
+        return download(urls, key, size, name, hash);
     }
 
     @Override
@@ -282,11 +282,13 @@ public class HttpDownloader implements Downloader {
                         request = HttpRequest.get(url);
                         request.execute().expectResponseCode(200).saveContent(file);
 
-                        String newHash = Files.hash(file, hf).toString();
-                        if (!newHash.equals(this.hash)) {
-                            log.log(Level.WARNING, "Hash sum doesn't match " + url);
-                            file.delete();
-                            continue;
+                        if (this.hash != null) {
+                            String newHash = Files.hash(file, hf).toString();
+                            if (!newHash.equals(this.hash)) {
+                                log.log(Level.WARNING, "Hash sum doesn't match " + url);
+                                file.delete();
+                                continue;
+                            }
                         }
 
                         return;
