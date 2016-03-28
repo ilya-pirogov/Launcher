@@ -14,6 +14,7 @@ import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
+import com.google.common.io.Files;
 import com.skcraft.concurrency.ProgressObservable;
 import com.skcraft.launcher.util.HttpRequest;
 import com.skcraft.launcher.util.SharedLocale;
@@ -31,6 +32,7 @@ import java.util.concurrent.Executors;
 import java.util.logging.Level;
 
 import static com.skcraft.launcher.util.SharedLocale.tr;
+import static jdk.nashorn.internal.runtime.regexp.joni.Config.log;
 
 @Log
 public class HttpDownloader implements Downloader {
@@ -78,7 +80,7 @@ public class HttpDownloader implements Downloader {
     }
 
     @Override
-    public synchronized File download(@NonNull List<URL> urls, @NonNull String key, long size, String name) {
+    public synchronized File download(@NonNull List<URL> urls, @NonNull String key, long size, String name, String objectHash) {
         if (urls.isEmpty()) {
             throw new IllegalArgumentException("Can't download empty list of URLs");
         }
@@ -87,22 +89,45 @@ public class HttpDownloader implements Downloader {
         hash = createUniqueKey(hash);
         File tempFile = new File(tempDir, hash.substring(0, 2) + "/" + hash);
 
+
+        if (objectHash != null && tempFile.exists()) {
+            String tempHash = "";;
+            try {
+                tempHash = Files.hash(tempFile, hf).toString();
+            } catch (IOException e) {
+                tempHash = "";
+            } finally {
+                if (!tempHash.equals(objectHash)) {
+                    tempFile.delete();
+                }
+            }
+        }
+
         // If the file is already downloaded (such as from before), then don't re-download
         if (!tempFile.exists()) {
             total += size;
             left++;
-            queue.add(new HttpDownloadJob(tempFile, urls, size, name != null ? name : tempFile.getName()));
+            queue.add(new HttpDownloadJob(tempFile, urls, size, name != null ? name : tempFile.getName(), objectHash));
         }
 
         return tempFile;
     }
 
+    @Override
+    public synchronized File download(@NonNull List<URL> urls, @NonNull String key, long size, String name) {
+        return download(urls, key, size, name, null);
+    }
 
     @Override
-    public File download(URL url, String key, long size, String name) {
+    public File download(URL url, String key, long size, String name, String hash) {
         List<URL> urls = new ArrayList<URL>();
         urls.add(url);
         return download(urls, key, size, name);
+    }
+
+    @Override
+    public File download(URL url, String key, long size, String name) {
+        return download(url, key, size, name, null);
     }
 
     /**
@@ -184,12 +209,18 @@ public class HttpDownloader implements Downloader {
         private final long size;
         @Getter private String name;
         private HttpRequest request;
+        @Getter private String hash;
 
         private HttpDownloadJob(File destFile, List<URL> urls, long size, String name) {
+            this(destFile, urls, size, name, null);
+        }
+
+        private HttpDownloadJob(File destFile, List<URL> urls, long size, String name, String hash) {
             this.destFile = destFile;
             this.urls = urls;
             this.size = size;
             this.name = name;
+            this.hash = hash;
         }
 
         @Override
@@ -250,6 +281,14 @@ public class HttpDownloader implements Downloader {
                     try {
                         request = HttpRequest.get(url);
                         request.execute().expectResponseCode(200).saveContent(file);
+
+                        String newHash = Files.hash(file, hf).toString();
+                        if (!newHash.equals(this.hash)) {
+                            log.log(Level.WARNING, "Hash sum doesn't match " + url);
+                            file.delete();
+                            continue;
+                        }
+
                         return;
                     } catch (IOException e) {
                         lastException = e;

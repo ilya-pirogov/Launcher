@@ -66,7 +66,7 @@ public class FileInstall extends ManifestEntry {
                 size = 10 * 1024;
             }
 
-            File tempFile = installer.getDownloader().download(url, fileVersion, size, to);
+            File tempFile = installer.getDownloader().download(url, fileVersion, size, to, getHash());
             installer.queue(new InstallLogFileMover(log, tempFile, targetFile));
         } else {
             log.add(to, to);
